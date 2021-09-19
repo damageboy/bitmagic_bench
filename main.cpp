@@ -1,87 +1,18 @@
-/*
-Copyright(c) 2002-2017 Anatoliy Kuznetsov(anatoliy_kuznetsov at yahoo.com)
+#pragma clang attribute push (__attribute__((target("avx512f,avx512dq,avx512bw,bmi,popcnt"))), apply_to = any(function))
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
-For more information please visit:  http://bitmagic.io
-*/
-
-#pragma clang attribute push (__attribute__((target("avx512f,avx512dq,avx512bw"))), apply_to = any(function))
-#include <fmt/format.h>
-#include <magic_enum.hpp>
-#include <benchmark/benchmark.h>
-#include <bitset>
-#include <iostream>
-#include <time.h>
-#include <stdio.h>
-#include <sstream>
-#include <cassert>
-#include <vector>
-#include <random>
-#include <memory>
-#include <cmath>
-
-//#define BMWASMSIMDOPT
-//#define BMSSE2OPT
-//#define BMSSE42OPT
-#define BMAVX2OPT
-//#define BMAVX512OPT
-#define BM_NONSTANDARD_EXTENTIONS
-
-#include <src/bm.h>
-#include <src/bmalgo.h>
-#include <src/bmintervals.h>
-#include <src/bmaggregator.h>
-#include <src/bmserial.h>
-#include <src/bmsparsevec.h>
-#include <src/bmsparsevec_algo.h>
-#include <src/bmsparsevec_serial.h>
-#include <src/bmstrsparsevec.h>
-#include <src/bmsparsevec_compr.h>
-#include <src/bmrandom.h>
-//#include "bmdbg.h"
-
-//#define BM64ADDR
-#ifdef _MSC_VER
-#pragma warning( push )
-#pragma warning( disable : 4996)
-#endif
-
-using namespace std;
-
-const unsigned int BSIZE = 150000000;
-const unsigned int REPEATS = 100;
-
-typedef  bitset<BSIZE>  test_bitset;
-unsigned platform_test = 1;
-
-std::random_device rand_dev;
-std::mt19937 gen(rand_dev()); // mersenne_twister_engine
-std::uniform_int_distribution<> rand_dis(0, BSIZE); // generate uniform numebrs for [1, vector_max]
-
-typedef bm::bvector<> bvect;
+#include "common.h"
 
 // generate pseudo-random bit-vector, mix of compressed/non-compressed blocks
 //
 static
-void generate_bvector(bvect& bv, unsigned vector_max = 40000000, bool optimize = true)
+void generate_bvector(bm::bvector<>& bv, unsigned vector_max = 40000000, bool optimize = true)
 {
     unsigned i, j;
     for (i = 0; i < vector_max;)
     {
         // generate bit-blocks
         {
-            bvect::bulk_insert_iterator iit(bv);
+            bm::bvector<>::bulk_insert_iterator iit(bv);
             for (j = 0; j < 65535 * 10; i += 10, j++)
             {
                 iit = i;
@@ -104,8 +35,8 @@ void generate_bvector(bvect& bv, unsigned vector_max = 40000000, bool optimize =
 }
 
 static
-void SimpleFillSets(test_bitset* bset,
-                    bvect& bv,
+void SimpleFillSets(bitset<BSIZE>* bset,
+                    bm::bvector<>& bv,
                     unsigned min,
                     unsigned max,
                     unsigned fill_factor,
@@ -125,7 +56,7 @@ void SimpleFillSets(test_bitset* bset,
 // 111........111111........111111..........11111111.......1111111...
 //
 static
-void FillSetsIntervals(test_bitset* bset,
+void FillSetsIntervals(bitset<BSIZE>* bset,
                        bm::bvector<> &bv,
                        unsigned min = 0,
                        unsigned max = BSIZE,
@@ -193,12 +124,12 @@ void FillSetsIntervals(test_bitset* bset,
 }
 
 static
-void generate_sparse_bvector(bvect& bv,
+void generate_sparse_bvector(bm::bvector<>& bv,
                              unsigned min = 0,
                              unsigned max = BSIZE,
                              unsigned fill_factor = 65536)
 {
-    bvect::bulk_insert_iterator iit(bv);
+    bm::bvector<>::bulk_insert_iterator iit(bv);
     unsigned ff = fill_factor / 10;
     for (unsigned i = min; i < max; i+= ff)
     {
@@ -213,13 +144,13 @@ void generate_sparse_bvector(bvect& bv,
 
 
 static
-void GenerateTestCollection(std::vector<bvect>* target,
+void GenerateTestCollection(std::vector<bm::bvector<>>* target,
                             unsigned count = 30,
                             unsigned vector_max = 40000000,
                             bool optimize = true)
 {
     assert(target);
-    bvect bv_common; // sub-vector common for all collection
+    bm::bvector<> bv_common; // sub-vector common for all collection
     generate_sparse_bvector(bv_common, vector_max/10, vector_max, 250000);
 
     unsigned cnt1 = (count / 2);
@@ -228,7 +159,7 @@ void GenerateTestCollection(std::vector<bvect>* target,
 
     for (i = 0; i < cnt1; ++i)
     {
-        std::unique_ptr<bvect> bv (new bvect);
+        std::unique_ptr<bm::bvector<>> bv (new bm::bvector<>);
         generate_bvector(*bv, vector_max, optimize);
         *bv |= bv_common;
         if (optimize)
@@ -239,7 +170,7 @@ void GenerateTestCollection(std::vector<bvect>* target,
     unsigned fill_factor = 10;
     for (; i < count; ++i)
     {
-        std::unique_ptr<bvect> bv (new bvect);
+        std::unique_ptr<bm::bvector<>> bv (new bm::bvector<>);
 
         FillSetsIntervals(0, *bv, vector_max/ 10, vector_max, fill_factor);
         *bv |= bv_common;
@@ -287,8 +218,8 @@ BENCHMARK(BM_libc_memcpy);
 
 static
 void BM_bvector_count(benchmark::State& state) {
-    bm::bvector<> *bv = new bvect();
-    test_bitset *bset = new test_bitset();
+    auto bv = new bm::bvector<>();
+    auto *bset = new bitset<BSIZE>();
     unsigned value = 0;
     FillSetsIntervals(bset, *bv, 0, BSIZE, 10);
 
@@ -314,8 +245,8 @@ BENCHMARK(BM_bvector_count);
 
 static
 void BM_std_bitset_count(benchmark::State& state) {
-    bm::bvector<> *bv = new bvect();
-    test_bitset *bset = new test_bitset();
+    auto *bv = new bm::bvector<>();
+    auto *bset = new bitset<BSIZE>();
     unsigned value = 0;
     FillSetsIntervals(bset, *bv, 0, BSIZE, 10);
 
@@ -336,6 +267,10 @@ const size_t GB = MB * 1024;
 const size_t MEM_SIZE = 64*GB;
 const size_t BLOCK_SIZE = 4 * KB;
 const size_t NUM_BITS = MEM_SIZE / BLOCK_SIZE;
+
+std::random_device rand_dev;
+std::mt19937 gen(rand_dev()); // mersenne_twister_engine
+std::uniform_int_distribution<> rand_dis(0, BSIZE); // generate uniform numebrs for [1, vector_max]
 
 BENCHMARK_MAIN();
 #pragma clang attribute pop

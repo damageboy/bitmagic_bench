@@ -19,7 +19,7 @@ CPMAddPackage("gh:google/benchmark#v1.6.0")
 
 find_package(Threads REQUIRED) # for pthread
 
-add_executable(bitmagicbench main.cpp)
+add_executable(bitmagicbench main.cpp bitscan.cpp common.h)
 
 target_link_libraries(bitmagicbench
 	PUBLIC
